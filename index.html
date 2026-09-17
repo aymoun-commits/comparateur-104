@@ -105,6 +105,18 @@ td.statut{width:1%;white-space:nowrap}
   color:var(--vert);padding:7px 10px;border-bottom:1px solid var(--bord);font-size:12px}
 .apercu thead th.num{text-align:right}
 .mono{font-family:ui-monospace,Consolas,monospace;font-weight:600}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.duo{grid-template-columns:1fr}}
+.fente{border:1px solid var(--bord);border-radius:9px;padding:12px;background:var(--fond)}
+.fente-titre{font-size:12px;font-weight:700;color:var(--vert);text-transform:uppercase;
+  letter-spacing:.04em;margin-bottom:8px}
+.fente .depot{margin-bottom:0;padding:16px 10px}
+.fente.pleine .depot{display:none}
+.fiche-version{background:var(--blanc);border:1px solid var(--bord);border-radius:8px;padding:10px 12px}
+.fiche-version .nom{font-weight:600;word-break:break-word}
+.fiche-version .det{font-size:12.5px;color:var(--gris);margin-top:3px}
+.fiche-version .ligne-fichier{margin:10px 0 0}
+.fiche-version .btn{padding:5px 10px;font-size:12px}
 pre.recap{white-space:pre-wrap;background:var(--blanc);border:1px solid var(--bord);border-radius:8px;
   padding:16px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.55;margin:0;
   color:var(--encre);overflow-x:auto}
@@ -155,28 +167,36 @@ summary:focus-visible{outline:2px solid var(--vert);outline-offset:2px}
 <div class="wrap">
 
   <section class="carte sans-impression">
-    <h2>Version de référence <span class="pastille" id="cptRef">aucune</span><span class="horodatage" id="horoRef"></span></h2>
-    <p class="aide">La dernière version validée est gardée dans ce navigateur. Elle n'est remplacée que quand tu cliques sur « Définir comme nouvelle référence ».</p>
-    <div class="ligne-fichier" id="barreRef"></div>
-    <div class="note bleue cache" id="avertStockage"></div>
-  </section>
-
-  <section class="carte sans-impression">
-    <h2>Nouvelle version <span class="pastille" id="cptNew">aucune</span></h2>
-    <p class="aide">Listing 104 imprimé en PDF depuis l'ERP. Lecture faite dans le navigateur, rien n'est envoyé ailleurs.</p>
-    <div class="depot" id="depot" tabindex="0" role="button" aria-label="Déposer le nouveau listing">
-      <b>Déposer le PDF du listing</b>
-      <span>ou cliquer pour choisir un fichier</span>
+    <h2>Les deux versions à comparer</h2>
+    <p class="aide">Dépose la version précédente à gauche et la mise à jour à droite. La comparaison part dès que les deux sont là.</p>
+    <div class="duo">
+      <div class="fente" id="fenteA">
+        <div class="fente-titre">1. Version précédente</div>
+        <div class="depot" id="depotA" tabindex="0" role="button" aria-label="Déposer la version précédente">
+          <b>Déposer le PDF</b><span>ou cliquer pour choisir</span>
+        </div>
+        <div id="carteA"></div>
+      </div>
+      <div class="fente" id="fenteB">
+        <div class="fente-titre">2. Nouvelle version</div>
+        <div class="depot" id="depotB" tabindex="0" role="button" aria-label="Déposer la nouvelle version">
+          <b>Déposer le PDF</b><span>ou cliquer pour choisir</span>
+        </div>
+        <div id="carteB"></div>
+      </div>
     </div>
-    <details>
-      <summary>Coller le texte du listing à la place</summary>
-      <textarea id="colle" placeholder="Coller ici le texte du listing 104"></textarea>
-      <div class="ligne-fichier" style="margin-top:10px"><button class="btn" id="btnColle">Lire le texte collé</button></div>
-    </details>
-    <input type="file" id="fichier" accept="application/pdf">
-    <input type="file" id="fichierBase" accept="application/pdf">
     <div class="note bleue cache" id="etat"></div>
-    <div id="apercuZone"></div>
+    <div class="note bleue cache" id="avertStockage"></div>
+    <details style="margin-top:12px">
+      <summary>Coller le texte d'un listing à la place d'un PDF</summary>
+      <textarea id="colle" placeholder="Coller ici le texte du listing"></textarea>
+      <div class="ligne-fichier" style="margin-top:10px">
+        <button class="btn" id="btnColleA">Lire comme version précédente</button>
+        <button class="btn" id="btnColleB">Lire comme nouvelle version</button>
+      </div>
+    </details>
+    <input type="file" id="fichierA" accept="application/pdf">
+    <input type="file" id="fichierB" accept="application/pdf">
   </section>
 
   <div id="resultat" class="cache">
@@ -260,7 +280,7 @@ const nbr = s => {
 };
 
 function analyser(lignes){
-  const doc = {print:"", heure:"", laadDe:"", laadA:"", listing:"", lignes:[], articles:new Map()};
+  const doc = {print:"", heure:"", laadDe:"", laadA:"", listing:"", portee:"", lignes:[], articles:new Map()};
   let art = null, derniere = null; const vues = new Map();
 
   for(const brute of lignes){
@@ -270,6 +290,7 @@ function analyser(lignes){
     if((m = l.match(/(\d{2}:\d{2}:\d{2})/)))        doc.heure = doc.heure || m[1];
     if((m = l.match(/Laaddatum\s+van\/tot\s+([\d.\/-]+)\s*\/\s*([\d.\/-]+)/i))){ doc.laadDe = doc.laadDe || m[1]; doc.laadA = doc.laadA || m[2]; }
     if((m = l.match(/^(\d{2,3})\s+(?:Nog te produceren|Bestelling)/i))) doc.listing = doc.listing || m[1];
+    if((m = l.match(/^FA\d+\s+\d+\s+\d+\s+(\d+)\s+\d+/)))        doc.portee = doc.portee || m[1];
 
     if((m = l.match(RX_CLIENT))){
       let cle = `${art ? art.code : "?"}|${m[1]}|${m[3]}`;
@@ -296,7 +317,7 @@ function analyser(lignes){
 const empaqueter = (doc, nom) => ({
   id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
   nom, enregistreLe: new Date().toISOString(),
-  print:doc.print, heure:doc.heure, laadDe:doc.laadDe, laadA:doc.laadA, listing:doc.listing,
+  print:doc.print, heure:doc.heure, laadDe:doc.laadDe, laadA:doc.laadA, listing:doc.listing, portee:doc.portee,
   articles:[...doc.articles.entries()], lignes:doc.lignes
 });
 const ouvrir = p => ({...p, articles:new Map(p.articles || [])});
@@ -441,47 +462,60 @@ function apercu(doc, nom){
     </details>`;
 }
 
-/* ---------- état ---------- */
-let courant = null, baseAdHoc = null;
+/* ---------- état : deux emplacements visibles ---------- */
+let versionA = null, versionB = null, forcerCompar = false;
 
-function majRef(){
-  const h = histoire();
-  if(!h.length){
-    $("cptRef").textContent = "aucune";
-    $("horoRef").textContent = "";
-    $("barreRef").innerHTML = `<span class="nomfichier">Le premier listing déposé deviendra la référence.</span>
-      <button class="btn" id="btnBaseFichier">Charger une base depuis un fichier</button>`;
-  } else {
-    const r = h[0];
-    $("cptRef").textContent = `${r.lignes.length} lignes`;
-    $("horoRef").textContent = `impression ${r.print} ${r.heure} · chargement ${r.laadDe}`;
-    $("barreRef").innerHTML = `
-      <span class="nomfichier">Comparer contre</span>
-      <select id="selBase">${h.map((x,i)=>`<option value="${x.id}">${ech(x.print)} ${ech(x.heure)} — ${ech(x.nom)}${i===0?" (dernière)":""}</option>`).join("")}</select>
-      <button class="btn" id="btnBaseFichier">Autre fichier…</button>
-      <button class="btn" id="btnVider">Effacer l'historique</button>`;
-  }
-  const a = $("btnBaseFichier"); if(a) a.onclick = ()=> $("fichierBase").click();
-  const b = $("btnVider"); if(b) b.onclick = ()=>{
-    if(confirm("Effacer les versions enregistrées ?")){ toutEffacer(); baseAdHoc = null; majRef(); }
-  };
-  const s = $("selBase"); if(s) s.onchange = ()=>{ baseAdHoc = null; if(courant) lancer(); };
-  const av = $("avertStockage");
-  if(av) av.className = stockageOK ? "note bleue cache" : "note ambre";
-  if(av && !stockageOK) av.textContent =
-    "Ce navigateur ne garde rien d'une ouverture à l'autre (fichier ouvert hors ligne). La référence tient le temps de l'onglet. Une fois l'app en ligne, elle sera conservée.";
+function ficheHTML(v, cible){
+  const hist = histoire();
+  const choix = (cible === "A" && hist.length > 1)
+    ? `<select id="selBase">${hist.map((x,i)=>`<option value="${x.id}"${x.id===v.id?" selected":""}>${ech(x.print)} ${ech(x.heure)} — ${ech(x.nom)}${i===0?" (dernière)":""}</option>`).join("")}</select>` : "";
+  return `<div class="fiche-version">
+      <div class="nom">${ech(v.nom)}</div>
+      <div class="det">${v.lignes.length} lignes · ${v.articles.length} articles · listing ${ech(v.listing || "?")}</div>
+      <div class="det">impression ${ech(v.print)} ${ech(v.heure)} · chargement ${ech(v.laadDe)}</div>
+      <div class="ligne-fichier">${choix}
+        <button class="btn" data-remplacer="${cible}">Remplacer</button>
+        <button class="btn" data-vider="${cible}">Retirer</button>
+      </div>
+      <details><summary>Vérifier les ${v.lignes.length} lignes lues</summary>${tableauLignes(v)}</details>
+    </div>`;
 }
 
-function base(){
-  if(baseAdHoc) return baseAdHoc;
-  const h = histoire(); if(!h.length) return null;
+function tableauLignes(v){
+  return `<div class="apercu"><table>
+    <thead><tr><th>Article</th><th>Client</th><th class="num">Commandé</th><th>Site / note</th></tr></thead>
+    <tbody>${v.lignes.map(l=>`<tr>
+      <td><span class="mono">${ech(l.article)}</span></td>
+      <td>${ech(l.client)} <span class="gris">${ech(l.ordre)}</span></td>
+      <td class="num">${fmt(l.commande)} ${ech(l.unite)}</td>
+      <td class="gris">${ech([l.site, l.notes.join(" · ")].filter(Boolean).join(" — "))}</td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+function majFentes(){
+  [["A", versionA, $("carteA"), $("fenteA")], ["B", versionB, $("carteB"), $("fenteB")]].forEach(([c, v, zone, fente])=>{
+    zone.innerHTML = v ? ficheHTML(v, c) : "";
+    fente.classList.toggle("pleine", !!v);
+  });
+  document.querySelectorAll("[data-remplacer]").forEach(b=> b.onclick = ()=> $("fichier" + b.dataset.remplacer).click());
+  document.querySelectorAll("[data-vider]").forEach(b=> b.onclick = ()=>{
+    forcerCompar = false;
+    if(b.dataset.vider === "A") versionA = null; else versionB = null;
+    $("resultat").classList.add("cache"); etat(""); majFentes();
+  });
   const s = $("selBase");
-  return (s && h.find(x=>x.id===s.value)) || h[0];
+  if(s) s.onchange = ()=>{
+    const v = histoire().find(x=>x.id === s.value);
+    if(v){ versionA = v; majFentes(); if(versionB) lancer(); }
+  };
+  const av = $("avertStockage");
+  av.className = stockageOK ? "note bleue cache" : "note ambre";
+  if(!stockageOK) av.textContent = "Ce navigateur ne garde rien d'une ouverture à l'autre. La version précédente tient le temps de l'onglet.";
 }
 
 function etat(msg, classe){
   const el = $("etat");
-  if(!msg){ el.classList.add("cache"); return; }
+  if(!msg){ el.className = "note bleue cache"; return; }
   el.className = "note " + (classe || "bleue");
   el.innerHTML = msg;
 }
@@ -491,17 +525,56 @@ const cleTemps = d => {
   return (p.length === 3 ? `20${p[2]}-${p[1]}-${p[0]}` : "") + " " + (d.heure || "");
 };
 
+const bloc = ["compteurs","actions","carteRecap","ecarts"];
+const montrerBloc = oui => bloc.forEach(i=> $(i).classList.toggle("cache", !oui));
+
 function lancer(){
-  const b0 = base();
-  if(!b0){ $("resultat").classList.add("cache"); return; }
-  const b = ouvrir(b0), n = ouvrir(courant);
+  if(!versionA || !versionB){ $("resultat").classList.add("cache"); return; }
+  const b = ouvrir(versionA), n = ouvrir(versionB);
   const ecarts = comparer(b, n);
 
   let al = "";
+
+  /* Deux impressions issues de paramétrages différents (autre poste, autre session)
+     ne sont pas deux versions du même listing. Deux preuves tirées du contenu : */
+  const normLib = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const communs = [...n.articles.keys()].filter(c => b.articles.has(c));
+  const libDiff = communs.filter(c => normLib(b.articles.get(c)) !== normLib(n.articles.get(c)));
+  const libSuspect = communs.length >= 3 && libDiff.length / communs.length > 0.5;
+
+  const communLignes = ecarts.filter(e => e.type !== "ajout" && e.type !== "retrait").length;
+  const petit = Math.min(b.lignes.length, n.lignes.length);
+  const gros  = Math.max(b.lignes.length, n.lignes.length);
+  const extrait = petit > 0 && petit / gros < 0.2 && communLignes === petit;
+
+  /* Seul l'extrait bloque. Une différence de libellés ne gêne pas la comparaison :
+     elle porte sur les codes articles, les clients et les quantités, jamais sur le texte. */
+  if(extrait && !forcerCompar){
+    let pourquoi = `<div>L'une des deux ne compte que ${petit} lignes contre ${gros} pour l'autre,
+      et ses ${petit} lignes se retrouvent telles quelles dans la grande. C'est un extrait, pas une version antérieure.</div>`;
+    if(libSuspect) pourquoi += `<div class="gris">Les libellés diffèrent aussi, signe d'une impression depuis un autre poste.</div>`;
+    if(b.portee && n.portee && b.portee !== n.portee)
+      pourquoi += `<div class="gris">Les en-têtes portent des paramètres différents : ${ech(b.portee)} contre ${ech(n.portee)}.</div>`;
+    $("alertes").innerHTML = `<div class="note rouge"><b>Comparaison refusée.</b> L'un des deux fichiers ne couvre qu'une partie des commandes.
+        ${pourquoi}<div>Réimprime les deux versions avec la même sélection.</div></div>
+      <div class="ligne-fichier sans-impression"><button class="btn" id="btnForcer">Comparer quand même</button></div>`;
+    $("enteteImpression").innerHTML = "";
+    montrerBloc(false);
+    $("resultat").classList.remove("cache");
+    $("btnForcer").onclick = ()=>{ forcerCompar = true; lancer(); };
+    return;
+  }
+  montrerBloc(true);
+  if(extrait)
+    al += `<div class="note rouge">L'un des deux fichiers semble n'être qu'un extrait : les écarts ci-dessous ne sont pas fiables.</div>`;
+  else if(libSuspect)
+    al += `<div class="note bleue">Les deux impressions n'affichent pas les libellés dans la même langue, signe de deux postes différents.
+      Sans conséquence sur les écarts : la comparaison porte sur les codes articles, les clients et les quantités.
+      Les libellés affichés ci-dessous sont ceux de la nouvelle version.</div>`;
   if(b.laadDe && n.laadDe && b.laadDe !== n.laadDe)
     al += `<div class="note ambre">Dates de chargement différentes : ${ech(b.laadDe)} contre ${ech(n.laadDe)}. Vérifie que c'est bien le même jour de livraison.</div>`;
   if(cleTemps(n).trim() && cleTemps(b).trim() && cleTemps(n) < cleTemps(b))
-    al += `<div class="note rouge">Le fichier déposé a été imprimé <b>avant</b> la référence. Les deux versions sont peut-être inversées.</div>`;
+    al += `<div class="note rouge">La nouvelle version a été imprimée <b>avant</b> la précédente. Les deux emplacements sont peut-être inversés.</div>`;
   if(b.listing && n.listing && b.listing !== n.listing)
     al += `<div class="note ambre">Listings différents : ${ech(b.listing)} contre ${ech(n.listing)}.</div>`;
   $("alertes").innerHTML = al;
@@ -514,22 +587,23 @@ function lancer(){
   $("recap").textContent = texte;
 
   $("actions").innerHTML = `
-    <button class="btn plein" id="btnRef">Définir comme nouvelle référence</button>
+    <button class="btn plein" id="btnRef">Garder la nouvelle version comme référence</button>
     <button class="btn" id="btnImprimer">Imprimer la fiche</button>
     <button class="btn" id="btnImprimerRecap">Imprimer le récap</button>
     <button class="btn" id="btnCopier">Copier le récap</button>
     <span class="nomfichier" id="msgAction"></span>`;
   $("btnRef").onclick = ()=>{
-    const h = histoire(); h.unshift(courant);
-    enregistrer(h); baseAdHoc = null; majRef();
-    $("msgAction").textContent = stockageOK ? "Référence mise à jour." : "Référence mise à jour (le temps de l'onglet).";
+    const hist = histoire(); hist.unshift(versionB); enregistrer(hist);
+    versionA = versionB; versionB = null;
+    majFentes(); $("resultat").classList.add("cache");
+    etat("Nouvelle référence en place. Dépose la prochaine mise à jour à droite.", "verte");
   };
   const imprimer = mode => { document.body.dataset.impression = mode; window.print(); };
   $("btnImprimer").onclick = ()=> imprimer("fiche");
   $("btnImprimerRecap").onclick = ()=> imprimer("recap");
   $("btnCopier").onclick = ()=>{
     navigator.clipboard.writeText(texte).then(
-      ()=> $("msgAction").textContent = "Résumé copié.",
+      ()=> $("msgAction").textContent = "Récap copié.",
       ()=> $("msgAction").textContent = "Copie impossible, sélectionne le texte à la main."
     );
   };
@@ -537,7 +611,7 @@ function lancer(){
   try{
     const doux = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     $("resultat").scrollIntoView({behavior: doux ? "smooth" : "auto", block:"start"});
-  }catch(e){ /* navigateur sans scrollIntoView paramétrable */ }
+  }catch(e){}
 }
 
 function resume(ecarts, n, b){
@@ -582,57 +656,51 @@ function resume(ecarts, n, b){
 }
 
 /* ---------- entrées ---------- */
-async function traiter(lignes, nom, commeBase){
+function traiter(lignes, nom, cible){
   const doc = analyser(lignes);
   if(!doc.lignes.length){
     etat("Aucune ligne de commande reconnue. Si le PDF vient d'un scan, il n'a pas de couche texte : réimprime le listing en PDF depuis l'ERP.", "ambre");
     return;
   }
   const paquet = empaqueter(doc, nom);
-  if(commeBase){
-    baseAdHoc = paquet;
-    etat(`Base de comparaison chargée : ${ech(nom)} — ${doc.lignes.length} lignes.`, "verte");
-    if(courant) lancer();
-    return;
-  }
-  courant = paquet;
-  $("cptNew").textContent = `${doc.lignes.length} lignes`;
-  apercu(doc, nom);
-  const h = histoire();
-  if(!h.length){
-    h.unshift(paquet);
-    enregistrer(h);
-    majRef();
-    etat(`Version gardée comme référence. Dépose maintenant la version mise à jour — ou le même fichier pour vérifier que la comparaison tourne (elle doit annoncer zéro écart).`, "verte");
-    $("resultat").classList.add("cache");
-    return;
-  }
-  etat("");
-  lancer();
+
+  forcerCompar = false;
+  if(cible === "A"){ versionA = paquet; etat(""); }
+  else if(!versionA){
+    versionA = paquet;
+    etat("Placée en version précédente. Dépose maintenant la mise à jour dans le deuxième emplacement.", "verte");
+  } else { versionB = paquet; etat(""); }
+
+  majFentes();
+  if(versionA && versionB) lancer(); else $("resultat").classList.add("cache");
 }
 
-async function lireFichier(f, commeBase){
+async function lireFichier(f, cible){
   if(!f) return;
   if(!/\.pdf$/i.test(f.name)){ etat("Il faut le PDF du listing, pas un autre format.", "ambre"); return; }
   etat(`<span class="tourne"></span>Lecture de ${ech(f.name)}…`, "bleue");
-  try{ await traiter(await pdfEnLignes(f), f.name, commeBase); }
+  try{ traiter(await pdfEnLignes(f), f.name, cible); }
   catch(e){ console.error(e); etat("Lecture impossible : " + ech(e.message || e), "rouge"); }
 }
 
-const depot = $("depot");
-depot.onclick = ()=> $("fichier").click();
-depot.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); $("fichier").click(); } };
-["dragenter","dragover"].forEach(ev=> depot.addEventListener(ev, e=>{ e.preventDefault(); depot.classList.add("survol"); }));
-["dragleave","drop"].forEach(ev=> depot.addEventListener(ev, e=>{ e.preventDefault(); depot.classList.remove("survol"); }));
-depot.addEventListener("drop", e=> lireFichier(e.dataTransfer.files[0], false));
-$("fichier").onchange = e=>{ lireFichier(e.target.files[0], false); e.target.value = ""; };
-$("fichierBase").onchange = e=>{ lireFichier(e.target.files[0], true); e.target.value = ""; };
-$("btnColle").onclick = ()=>{
-  const t = $("colle").value.trim();
-  if(!t){ etat("Colle d'abord le texte du listing.", "ambre"); return; }
-  traiter(t.split("\n"), "texte collé", false);
-};
-majRef();
+["A","B"].forEach(c=>{
+  const d = $("depot" + c);
+  d.onclick = ()=> $("fichier" + c).click();
+  d.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); $("fichier" + c).click(); } };
+  ["dragenter","dragover"].forEach(ev=> d.addEventListener(ev, e=>{ e.preventDefault(); d.classList.add("survol"); }));
+  ["dragleave","drop"].forEach(ev=> d.addEventListener(ev, e=>{ e.preventDefault(); d.classList.remove("survol"); }));
+  d.addEventListener("drop", e=> lireFichier(e.dataTransfer.files[0], c));
+  $("fichier" + c).onchange = e=>{ lireFichier(e.target.files[0], c); e.target.value = ""; };
+  $("btnColle" + c).onclick = ()=>{
+    const t = $("colle").value.trim();
+    if(!t){ etat("Colle d'abord le texte du listing.", "ambre"); return; }
+    traiter(t.split("\n"), "texte collé " + c, c);
+  };
+});
+
+const histoireInitiale = histoire();
+if(histoireInitiale.length) versionA = histoireInitiale[0];
+majFentes();
 </script>
 </body>
 </html>
