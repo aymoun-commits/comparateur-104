@@ -250,9 +250,9 @@ async function pdfEnLignes(fichier){
 }
 
 /* ---------- analyse du listing ---------- */
-const RX_CLIENT  = /^(\d{1,6})\s+(.+?)\s+(\d{5,7})\s+([\d.,]+)\s+([\d.,]+)\s+(KR|DS|ST|KG|PL)\b\s*(.*)$/;
+const RX_CLIENT  = /^(\d{1,6})\s+(.+?)\s+(\d{5,7})\s+([\d.,]+)(?:\s+([\d.,]+))?\s+(KR|DS|ST|KG|PL)\b\s*(.*)$/;
 const RX_ARTICLE = /^(\d{3,5})\s+([A-Za-zÀ-ÿ].*)$/;
-const RX_SAUT    = /^(Plukon\s|FA\d|Artikel\s+Klant|Nog te$|produceren|KPL$|TOTAAL:|Laaddatum|\d+\s+(Nog te produceren|Bestelling))/i;
+const RX_SAUT    = /^(Plukon\s|FA\d|Artikel\s+Klant|Nog te$|produceren|KPL$|TOTAAL:|subtotaal:|Totaal\b|Aantal\b|besteld\b|Kostenplaats\b|Laaddatum|Datum\/Tijd|\d+\s+(Nog te produceren|Bestelling))/i;
 
 const nbr = s => {
   const v = parseFloat(String(s == null ? "" : s).replace(/\s/g,"").replace(/\.(?=\d{3})/g,"").replace(",","."));
@@ -277,7 +277,8 @@ function analyser(lignes){
       if(n > 1) cle += `#${n}`;
       derniere = {cle, article: art ? art.code : "?", libelle: art ? art.lib : "",
         clientCode:m[1], client:m[2].trim(), ordre:m[3],
-        commande:nbr(m[4]), reste:nbr(m[5]), unite:m[6], site:(m[7]||"").trim(), notes:[]};
+        commande:nbr(m[4]), reste: m[5] === undefined ? null : nbr(m[5]),
+        unite:m[6], site:(m[7]||"").trim(), notes:[]};
       doc.lignes.push(derniere);
       continue;
     }
@@ -316,7 +317,8 @@ function comparer(base, neuf){
     const bn = b.notes.join(" · "), nn = n.notes.join(" · ");
     if(bn !== nn)                 ch.push({c:"notes", de:bn || "—", a:nn || "—"});
     if(ch.length)                 ecarts.push({type:"modif", l:n, avant:b, ch});
-    else if(b.reste !== n.reste)  ecarts.push({type:"prod", l:n, avant:b, ch:[{c:"reste", de:b.reste, a:n.reste}]});
+    else if(b.reste != null && n.reste != null && b.reste !== n.reste)
+                                  ecarts.push({type:"prod", l:n, avant:b, ch:[{c:"reste", de:b.reste, a:n.reste}]});
     else                          ecarts.push({type:"idem", l:n});
   }
   for(const [k,b] of B) if(!N.has(k)) ecarts.push({type:"retrait", l:b});
@@ -432,7 +434,7 @@ function apercu(doc, nom){
           <td><span class="mono">${ech(l.article)}</span></td>
           <td>${ech(l.client)} <span class="gris">${ech(l.ordre)}</span></td>
           <td class="num">${fmt(l.commande)} ${ech(l.unite)}</td>
-          <td class="num gris">${fmt(l.reste)}</td>
+          <td class="num gris">${l.reste == null ? "—" : fmt(l.reste)}</td>
           <td class="gris">${ech([l.site, l.notes.join(" · ")].filter(Boolean).join(" — "))}</td>
         </tr>`).join("")}</tbody>
       </table></div>
