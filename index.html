@@ -188,6 +188,16 @@ summary:focus-visible{outline:2px solid var(--vert);outline-offset:2px}
     <div class="note bleue cache" id="etat"></div>
     <div class="note bleue cache" id="avertStockage"></div>
     <details style="margin-top:12px">
+      <summary>Articles suivis <span id="cptCodes" class="gris"></span></summary>
+      <p class="aide">Codes des commandes poulets et cuisses. Tout article absent d'ici est ignoré. Un code par espace ou par ligne.</p>
+      <textarea id="zoneCodes" spellcheck="false"></textarea>
+      <div class="ligne-fichier" style="margin-top:10px">
+        <button class="btn plein" id="btnCodes">Enregistrer la liste</button>
+        <button class="btn" id="btnCodesDefaut">Revenir à la liste d'origine</button>
+        <span class="nomfichier" id="msgCodes"></span>
+      </div>
+    </details>
+    <details style="margin-top:12px">
       <summary>Coller le texte d'un listing à la place d'un PDF</summary>
       <textarea id="colle" placeholder="Coller ici le texte du listing"></textarea>
       <div class="ligne-fichier" style="margin-top:10px">
@@ -270,6 +280,18 @@ async function pdfEnLignes(fichier){
 }
 
 /* ---------- analyse du listing ---------- */
+/* Articles suivis : codes des fichiers Commande_poulets et Commande_cuisses.
+   Tout code absent de cette liste est écarté sans bruit (filet, abats, Ten Kate…). */
+const CODES_DEFAUT = `
+  3003 3004 3005 3006 3007 3008 3009 3010 3011 3012 3013 3033\n  3034 3035 3036 3037 3038 3041 3042 3043 3044 3045 3046 3047\n  3048 3049 3050 3051 3052 3069 3071 3072 3091 3092 3093 3094\n  3127 3130 3141 3212 3402 3403 3405 3409 3410 3411 3412 3413\n  3422 3423 3425 3426 3432 3450 3452 3501 3528 3551 3553 3569\n  3570 3571 3572 3603 3609 3611 3613 3623 3625 3631 3640 3641\n  3643 3646 3655 3656 3674 3683 3684 3687 3702 3703 3704 3705\n  3706 3707 3708 3709 3710 3711 3725 3726 3727 3728 3729 3753\n  3759 3766 3768 3771 3777 3788 3789 3790 3791 3792 3793 3795\n  3796 3799 3805 3913
+`;
+const CLE_CODES = "cmp104:codes:v1";
+function codesRetenus(){
+  let t = null;
+  try{ t = localStorage.getItem(CLE_CODES); }catch(e){}
+  return new Set((t || CODES_DEFAUT).split(/[^0-9]+/).filter(Boolean));
+}
+let CODES = codesRetenus();
 const RX_CLIENT  = /^(\d{1,6})\s+(.+?)\s+(\d{5,7})\s+([\d.,]+)(?:\s+([\d.,]+))?\s+(KR|DS|ST|KG|PL)\b\s*(.*)$/;
 const RX_ARTICLE = /^(\d{3,5})\s+([A-Za-zÀ-ÿ].*)$/;
 const RX_SAUT    = /^(Plukon\s|FA\d|Artikel\s+Klant|Nog te$|produceren|KPL$|TOTAAL:|subtotaal:|Totaal\b|Aantal\b|besteld\b|Kostenplaats\b|Laaddatum|Datum\/Tijd|\d+\s+(Nog te produceren|Bestelling))/i;
@@ -280,7 +302,7 @@ const nbr = s => {
 };
 
 function analyser(lignes){
-  const doc = {print:"", heure:"", laadDe:"", laadA:"", listing:"", portee:"", lignes:[], articles:new Map()};
+  const doc = {print:"", heure:"", laadDe:"", laadA:"", listing:"", portee:"", lignes:[], articles:new Map(), exclues:0};
   let art = null, derniere = null; const vues = new Map();
 
   for(const brute of lignes){
@@ -293,6 +315,7 @@ function analyser(lignes){
     if((m = l.match(/^FA\d+\s+\d+\s+\d+\s+(\d+)\s+\d+/)))        doc.portee = doc.portee || m[1];
 
     if((m = l.match(RX_CLIENT))){
+      if(!art || art.exclu){ doc.exclues++; derniere = null; continue; }
       let cle = `${art ? art.code : "?"}|${m[1]}|${m[3]}`;
       const n = (vues.get(cle) || 0) + 1; vues.set(cle, n);
       if(n > 1) cle += `#${n}`;
@@ -306,7 +329,8 @@ function analyser(lignes){
     if(RX_SAUT.test(l)) continue;
     if((m = l.match(RX_ARTICLE))){
       art = {code:m[1], lib:m[2].trim()};
-      if(!doc.articles.has(art.code)) doc.articles.set(art.code, art.lib);
+      art.exclu = !CODES.has(art.code);
+      if(!art.exclu && !doc.articles.has(art.code)) doc.articles.set(art.code, art.lib);
       derniere = null; continue;
     }
     if(derniere) derniere.notes.push(l);
@@ -318,11 +342,14 @@ const empaqueter = (doc, nom) => ({
   id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
   nom, enregistreLe: new Date().toISOString(),
   print:doc.print, heure:doc.heure, laadDe:doc.laadDe, laadA:doc.laadA, listing:doc.listing, portee:doc.portee,
-  articles:[...doc.articles.entries()], lignes:doc.lignes
+  articles:[...doc.articles.entries()], lignes:doc.lignes, exclues:doc.exclues
 });
 const ouvrir = p => ({...p, articles:new Map(p.articles || [])});
 
 /* ---------- comparaison ---------- */
+const RX_ALERTE = /FRAIS DU JOUR|\d{1,2}\s*[\/-]\s*\d{1,2}/i;
+const alerteDe = l => { const t = l.notes.join(" · "); return RX_ALERTE.test(t) ? t : null; };
+
 const LIB_CHAMP = {commande:"Quantité commandée", site:"Site de production", unite:"Unité", notes:"Annotation", reste:"Reste à produire"};
 
 function comparer(base, neuf){
@@ -375,16 +402,29 @@ function afficherEcarts(ecarts, base, neuf){
   reels.forEach(e=>{ if(!parArt.has(e.l.article)) parArt.set(e.l.article, []); parArt.get(e.l.article).push(e); });
 
   let html = "";
+  const alertes = neuf.lignes.map(l=>({l, t:alerteDe(l)})).filter(x=>x.t);
+  if(alertes.length){
+    html += `<div class="bloc"><div class="titre" style="background:var(--ambre-fond);color:var(--ambre)">
+        <span class="lib">Alertes production — ${alertes.length} ligne(s) à commentaire</span></div>
+      <table><tbody>${alertes.map(({l,t})=>`<tr>
+        <td class="statut"><span class="etiq modif">Alerte</span></td>
+        <td><b>${ech(l.article)}</b> ${ech(l.libelle)}<div class="detail">${ech(l.client)} <span class="gris">${ech(l.ordre)}</span></div>
+          <div class="annot">${ech(t)}</div></td>
+        <td class="num">${fmt(l.commande)} ${ech(l.unite)}</td><td class="num"></td></tr>`).join("")}</tbody></table></div>`;
+  }
   if(!reels.length) html += `<div class="note verte">Aucun écart de commande entre les deux versions.</div>`;
 
   [...parArt.keys()].sort().forEach(code=>{
     const liste = parArt.get(code);
     const lib = neuf.articles.get(code) || base.articles.get(code) || liste[0].l.libelle || "";
     const net = liste.reduce((s,e)=> s + deltaDe(e), 0);
+    const u = liste[0].l.unite;
+    const tot = neuf.lignes.filter(l=>l.article === code).reduce((s,l)=> s + l.commande, 0);
     html += `<div class="bloc"><div class="titre">
-        <span class="code">${ech(code)}</span><span class="lib">${ech(lib)}</span>` +
-        (net ? `<span class="solde ${net>0?"hausse":"baisse"}">${signe(net)} ${ech(liste[0].l.unite)}</span>` : ``) +
-      `</div><table><tbody>${liste.map(rangee).join("")}</tbody></table></div>`;
+        <span class="code">${ech(code)}</span><span class="lib">${ech(lib)}</span>
+        <span class="solde"><span class="gris">total ${fmt(tot)} ${ech(u)}</span>` +
+        (net ? ` <span class="${net>0?"hausse":"baisse"}">${signe(net)} ${ech(u)}</span>` : ``) +
+      `</span></div><table><tbody>${liste.map(rangee).join("")}</tbody></table></div>`;
   });
 
   if(pr.length){
@@ -471,7 +511,8 @@ function ficheHTML(v, cible){
     ? `<select id="selBase">${hist.map((x,i)=>`<option value="${x.id}"${x.id===v.id?" selected":""}>${ech(x.print)} ${ech(x.heure)} — ${ech(x.nom)}${i===0?" (dernière)":""}</option>`).join("")}</select>` : "";
   return `<div class="fiche-version">
       <div class="nom">${ech(v.nom)}</div>
-      <div class="det">${v.lignes.length} lignes · ${v.articles.length} articles · listing ${ech(v.listing || "?")}</div>
+      <div class="det">${v.lignes.length} lignes · ${v.articles.length} articles · listing ${ech(v.listing || "?")}${
+        v.exclues ? ` <span class="gris">· ${v.exclues} ligne${v.exclues>1?"s":""} hors périmètre</span>` : ""}</div>
       <div class="det">impression ${ech(v.print)} ${ech(v.heure)} · chargement ${ech(v.laadDe)}</div>
       <div class="ligne-fichier">${choix}
         <button class="btn" data-remplacer="${cible}">Remplacer</button>
@@ -620,37 +661,57 @@ function resume(ecarts, n, b){
   const solde = {};
   ecarts.forEach(e=>{ const d = deltaDe(e); if(d) solde[e.l.unite] = (solde[e.l.unite]||0) + d; });
 
+  /* total commandé de l'article dans la nouvelle version */
+  const totalArt = code => n.lignes.filter(l => l.article === code).reduce((s,l)=> s + l.commande, 0);
+
+  const entrees = [];
+  const ajouter = (titre, liste) => { if(liste.length) entrees.push({titre, liste}); };
+
+  const faire = (e, delta, de, a, extra) => ({
+    tete: delta === null ? "=" : signe(delta) + " " + e.l.unite,
+    suite: `${fmt(de)} → ${fmt(a)} ${e.l.unite} | total ${e.l.article} : ${fmt(totalArt(e.l.article))} ${e.l.unite}`
+         + ` | ${e.l.libelle} — ${e.l.client} (commande ${e.l.ordre})` + (extra ? ` [${extra}]` : "")
+  });
+
+  ajouter("AJOUTS", aj.map(e=> faire(e, e.l.commande, 0, e.l.commande,
+    [e.l.site ? "produit à " + e.l.site : "", e.l.notes.join(" · ")].filter(Boolean).join(" — "))));
+
+  ajouter("RETRAITS", re.map(e=> faire(e, -e.l.commande, e.l.commande, 0, "")));
+
+  ajouter("MODIFICATIONS", mo.map(e=>{
+    const q = e.ch.find(c=>c.c === "commande");
+    const autres = e.ch.filter(c=>c.c !== "commande")
+      .map(c=>`${LIB_CHAMP[c.c].toLowerCase()} ${c.de} → ${c.a}`).join(", ");
+    return q ? faire(e, q.a - q.de, q.de, q.a, autres)
+             : faire(e, null, e.l.commande, e.l.commande, autres);
+  }));
+
+  ajouter("AVANCEMENT PRODUCTION (commande inchangée)", pr.map(e=>{
+    const c = e.ch[0];
+    return {tete: "=", suite: `reste à produire ${fmt(c.de)} → ${fmt(c.a)} ${e.l.unite}`
+      + ` | total ${e.l.article} : ${fmt(totalArt(e.l.article))} ${e.l.unite}`
+      + ` | ${e.l.libelle} — ${e.l.client} (commande ${e.l.ordre})`};
+  }));
+
+  const larg = Math.max(0, ...entrees.flatMap(s=>s.liste.map(x=>x.tete.length)));
+
   const L = [];
   L.push(`Écarts listing ${n.listing || "104"} — chargement ${n.laadDe}`);
   L.push(`Version du ${n.print} à ${n.heure}, comparée à celle du ${b.print} à ${b.heure}`);
   L.push(`${aj.length} ajout(s) · ${re.length} retrait(s) · ${mo.length} modification(s)` +
          (Object.keys(solde).length ? ` · solde ${Object.entries(solde).map(([u,v])=>`${signe(v)} ${u}`).join(" / ")}` : ""));
+  L.push(`Seuls les articles des commandes poulets et cuisses sont pris en compte.`);
 
-  const ident = l => `${l.article} ${l.libelle} — ${l.client} (commande ${l.ordre})`;
-  const suffixe = l => [l.site ? `produit à ${l.site}` : "", l.notes.join(" · ")].filter(Boolean).join(" — ");
-  const ajout = (t, tab) => { if(tab.length){ L.push(""); L.push(t); tab.forEach(f=>L.push("  " + f)); } };
+  const alertes = n.lignes.map(l=>({l, t:alerteDe(l)})).filter(x=>x.t);
+  if(alertes.length){
+    L.push(""); L.push(`ALERTES — ${alertes.length} ligne(s) à commentaire de production`);
+    alertes.forEach(({l,t})=> L.push(`  ${fmt(l.commande)} ${l.unite} | ${l.article} ${l.libelle} — ${l.client} (commande ${l.ordre}) — ${t}`));
+  }
 
-  ajout("AJOUTS", aj.map(e=>{
-    const s = suffixe(e.l);
-    return `${signe(e.l.commande)} ${e.l.unite} — ${ident(e.l)}` + (s ? ` [${s}]` : "");
-  }));
-
-  ajout("RETRAITS", re.map(e=> `${signe(-e.l.commande)} ${e.l.unite} — ${ident(e.l)} (était ${fmt(e.l.commande)} ${e.l.unite})`));
-
-  ajout("MODIFICATIONS", mo.map(e=>{
-    const q = e.ch.find(c=>c.c === "commande");
-    const autres = e.ch.filter(c=>c.c !== "commande")
-      .map(c=>`${LIB_CHAMP[c.c].toLowerCase()} ${c.de} → ${c.a}`).join(", ");
-    const tete = q ? `${signe(q.a - q.de)} ${e.l.unite}` : "  =   ";
-    const detail = q ? `${fmt(q.de)} → ${fmt(q.a)} ${e.l.unite}` : "";
-    return `${tete} — ${ident(e.l)}` + (detail ? ` : ${detail}` : "") + (autres ? ` : ${autres}` : "");
-  }));
-
-  ajout("AVANCEMENT PRODUCTION (commande inchangée)", pr.map(e=>{
-    const c = e.ch[0];
-    return `${ident(e.l)} : reste à produire ${fmt(c.de)} → ${fmt(c.a)} ${e.l.unite}`;
-  }));
-
+  entrees.forEach(s=>{
+    L.push(""); L.push(s.titre);
+    s.liste.forEach(x=> L.push("  " + x.tete.padStart(larg) + " | " + x.suite));
+  });
   if(!aj.length && !re.length && !mo.length){ L.push(""); L.push("Aucun écart de commande entre les deux versions."); }
   return L.join("\n");
 }
@@ -697,6 +758,26 @@ async function lireFichier(f, cible){
     traiter(t.split("\n"), "texte collé " + c, c);
   };
 });
+
+function afficherCodes(t){
+  $("zoneCodes").value = (t || CODES_DEFAUT).trim().split(/[^0-9]+/).filter(Boolean).join(" ");
+  $("cptCodes").textContent = `— ${CODES.size} codes`;
+}
+$("btnCodes").onclick = ()=>{
+  const l = $("zoneCodes").value.split(/[^0-9]+/).filter(Boolean);
+  if(!l.length){ $("msgCodes").textContent = "Liste vide : rien enregistré."; return; }
+  try{ localStorage.setItem(CLE_CODES, l.join(" ")); }catch(e){}
+  CODES = new Set(l); afficherCodes(l.join(" "));
+  $("msgCodes").textContent = `${CODES.size} codes enregistrés. Redépose les fichiers pour appliquer.`;
+};
+$("btnCodesDefaut").onclick = ()=>{
+  try{ localStorage.removeItem(CLE_CODES); }catch(e){}
+  CODES = codesRetenus(); afficherCodes(null);
+  $("msgCodes").textContent = "Liste d'origine rétablie.";
+};
+let txtCodes = null;
+try{ txtCodes = localStorage.getItem(CLE_CODES); }catch(e){}
+afficherCodes(txtCodes);
 
 const histoireInitiale = histoire();
 if(histoireInitiale.length) versionA = histoireInitiale[0];
